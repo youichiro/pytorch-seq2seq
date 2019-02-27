@@ -2,6 +2,7 @@ __pycache__
 .python-version
 .vscode
 data/*
+models/*
 !sample.train.tsv
 !sample.valid.tsv
-
+!__init__.py
