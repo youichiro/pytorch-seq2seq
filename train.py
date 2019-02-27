@@ -29,6 +29,8 @@ def main():
     parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate')
     parser.add_argument('--clip', type=float, default=10, help='Clipping gradients')
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
+    parser.add_argument('--minfreq', type=int, default=2, help='Min word frequency')
+    parser.add_argument('--vocabsize', type=int, default=40000, help='vocabulary size')
     args = parser.parse_args()
 
     # setup data
@@ -47,8 +49,8 @@ def main():
     print(f'# validation examples: {len(valid_data)}')
     print('')
 
-    SRC.build_vocab(train_data, min_freq=2)
-    TRG.build_vocab(train_data, min_freq=2)
+    SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
+    TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
 
     vocabs = {'src_stoi': SRC.vocab.stoi, 'src_itos': SRC.vocab.itos,
               'trg_stoi': TRG.vocab.stoi, 'trg_itos': TRG.vocab.itos}
