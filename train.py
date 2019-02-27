@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchtext.data import Field, TabularDataset, BucketIterator
+from tqdm import tqdm
 
 from nets import RNNEncoder, RNNAttnDecoder, Seq2seq
 
@@ -111,7 +112,7 @@ def train(model, iterator, optimizer, criterion, clip):
     model.train()
     epoch_loss = 0
 
-    for batch in iterator:
+    for batch in tqdm(iterator):
         src = batch.src
         trg = batch.trg
         optimizer.zero_grad()
