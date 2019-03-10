@@ -2,6 +2,7 @@ __pycache__
 .python-version
 .vscode
 .DS_Store
+.vector_cache
 data/*
 models/*
 m2

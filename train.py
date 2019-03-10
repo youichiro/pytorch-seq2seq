@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchtext.data import Field, TabularDataset, BucketIterator
+from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
 
 from nets import RNNEncoder, RNNAttnDecoder, Seq2seq
@@ -34,6 +35,8 @@ def main():
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
     parser.add_argument('--minfreq', type=int, default=2, help='Min word frequency')
     parser.add_argument('--vocabsize', type=int, default=40000, help='vocabulary size')
+    parser.add_argument('--init-emb', choices=['fasttext', 'glove', 'none'], default='none',
+                        help='Select pretrained word embeddings')
     args = parser.parse_args()
 
     # setup data
@@ -49,8 +52,17 @@ def main():
         fields=[('src', SRC), ('trg', TRG)]
     )
 
-    SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
-    TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
+    if args.init_emb == 'none':
+        SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
+        TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
+    else:
+        if args.init_emb == 'fasttext':
+            vectors = FastText(language='en')
+        elif args.init_emb == 'glove':
+            vectors = GloVe()
+        SRC.build_vocab(train_data, vectors=vectors, min_freq=args.minfreq, max_size=args.vocabsize)
+        TRG.build_vocab(train_data, vectors=vectors, min_freq=args.minfreq, max_size=args.vocabsize)
+        args.embsize = SRC.vocab.vectors.size()[1]
 
     vocabs = {'src_stoi': SRC.vocab.stoi, 'src_itos': SRC.vocab.itos,
               'trg_stoi': TRG.vocab.stoi, 'trg_itos': TRG.vocab.itos}
@@ -61,6 +73,7 @@ def main():
         sort_within_batch=True,
         sort_key=lambda x: len(x.src),
         repeat=False,
+        shuffle=True,
         device=device
     )
 
