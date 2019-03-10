@@ -93,6 +93,9 @@ def main():
     params.update(train_size=train_size, valid_size=valid_size,
                   src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize)
     json.dump(params, open(args.save_dir + '/params.json', 'w', encoding='utf-8'), ensure_ascii=False)
+    print('parameters:')
+    for k, v in params.items():
+        print(f'\t{k}\t{v}')
 
     # training and validation
     best_loss = float('inf')
