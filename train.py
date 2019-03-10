@@ -5,6 +5,7 @@ import os
 import argparse
 import json
 import shutil
+import pprint
 
 import torch
 import torch.nn as nn
@@ -94,8 +95,8 @@ def main():
                   src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize)
     json.dump(params, open(args.save_dir + '/params.json', 'w', encoding='utf-8'), ensure_ascii=False)
     print('parameters:')
-    for k, v in params.items():
-        print(f'\t{k}\t{v}')
+    pprint.pprint(params, indent=4)
+    print()
 
     # training and validation
     best_loss = float('inf')
