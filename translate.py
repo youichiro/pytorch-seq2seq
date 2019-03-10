@@ -38,10 +38,10 @@ def main():
     trg_itos = state['vocabs']['trg_itos']
 
     sos_id = trg_stoi['<sos>']
-    encoder = RNNEncoder(len(src_itos), params['n_emb'], params['n_unit'],
-                         params['n_layer'], 0.0)
-    decoder = RNNAttnDecoder(len(trg_itos), params['n_emb'], params['n_unit'],
-                             params['n_layer'], 0.0, params['attn'])
+    encoder = RNNEncoder(len(src_itos), params['embsize'], params['unit'],
+                         params['layer'], 0.0)
+    decoder = RNNAttnDecoder(len(trg_itos), params['embsize'], params['unit'],
+                             params['layer'], 0.0, params['attn'])
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     model.load_state_dict(state['state_dict'])
 
