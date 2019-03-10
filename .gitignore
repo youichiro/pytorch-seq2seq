@@ -1,6 +1,7 @@
 __pycache__
 .python-version
 .vscode
+.DS_Store
 data/*
 models/*
 m2
