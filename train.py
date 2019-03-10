@@ -56,6 +56,7 @@ def main():
         SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
         TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
     else:
+        # use pre-trained word embeddings
         if args.init_emb == 'fasttext':
             vectors = FastText(language='en')
         elif args.init_emb == 'glove':
@@ -129,11 +130,11 @@ def main():
 
         # logging
         logs = f"""\
-         | Epoch: {epoch+1:03}\
-         | Train loss: {train_loss:.3f}\
-         | Train PPL: {math.exp(train_loss):7.3f}\
-         | Val. Loss {valid_loss:.3f}\
-         | Val. PPL: {math.exp(valid_loss): 7.3f} |
+        | Epoch: {epoch+1:03}\
+        | Train loss: {train_loss:.3f}\
+        | Train PPL: {math.exp(train_loss):7.3f}\
+        | Val. Loss {valid_loss:.3f}\
+        | Val. PPL: {math.exp(valid_loss): 7.3f} |
         """
         print(logs)
         with open(args.save_dir + '/logs.txt', 'a') as f:
