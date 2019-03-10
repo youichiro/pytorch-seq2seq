@@ -3,6 +3,8 @@ __pycache__
 .vscode
 data/*
 models/*
+m2
+results
 !sample.train.tsv
 !sample.valid.tsv
 !sample.test

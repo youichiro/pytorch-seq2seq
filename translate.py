@@ -53,7 +53,10 @@ def main():
         output = model(sequence, None, args.maxlen, 0.0)
         output = output.squeeze(1)[1:].max(1)[1]
         output = get_sentence(output, trg_itos)
-        print(' '.join(output))
+        if not output:
+            print("NOTOKENS")
+        else:
+            print(' '.join(output))
 
 
 if __name__ == '__main__':
