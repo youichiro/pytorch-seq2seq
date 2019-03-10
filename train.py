@@ -36,6 +36,7 @@ def main():
     args = parser.parse_args()
 
     # setup data
+    print('setup data...\n')
     SRC = Field(init_token='<sos>', eos_token='<eos>', lower=True)
     TRG = Field(init_token='<sos>', eos_token='<eos>', lower=True)
 
@@ -83,7 +84,8 @@ def main():
     criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
 
     # make directory for saving
-    shutil.rmtree(args.save_dir)
+    if os.path.exists(args.save_dir):
+        shutil.rmtree(args.save_dir)
     os.mkdir(args.save_dir)
 
     # save parameters
