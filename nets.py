@@ -7,11 +7,22 @@ import torch.optim as optim
 import random
 
 
-class RNNEncoder(nn.Module):
-    def __init__(self, n_vocab, n_emb, n_unit, n_layer, dropout):
+class Embedding(nn.Module):
+    def __init__(self, n_vocab, n_emb):
         super().__init__()
         self.embedding = nn.Embedding(n_vocab, n_emb)
-        self.rnn = nn.LSTM(n_emb, n_unit, n_layer)
+        self.n_vocab = n_vocab
+        self.n_emb = n_emb
+
+    def forward(self, words):
+        return self.embedding(words)
+
+
+class RNNEncoder(nn.Module):
+    def __init__(self, embedding, n_unit, n_layer, dropout, bidirectional=False):
+        super().__init__()
+        self.embedding = embedding
+        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer, bidirectional=bidirectional)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, src_seqs):
@@ -21,13 +32,13 @@ class RNNEncoder(nn.Module):
 
 
 class RNNDecoder(nn.Module):
-    def __init__(self, n_vocab, n_emb, n_unit, n_layer, dropout):
+    def __init__(self, embedding, n_unit, n_layer, dropout):
         super().__init__()
-        self.embedding = nn.Embedding(n_vocab, n_emb)
-        self.rnn = nn.LSTM(n_emb, n_unit, n_layer)
-        self.wo = nn.Linear(n_unit, n_vocab)
+        self.embedding = embedding
+        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
+        self.wo = nn.Linear(n_unit, embedding.n_vocab)
         self.dropout = nn.Dropout(dropout)
-        self.n_vocab = n_vocab
+        self.n_vocab = embedding.n_vocab
 
     def forward(self, tgt_words, hs):
         tgt_words = tgt_words.unsqueeze(0)  # 次元を一つ上げる
@@ -73,15 +84,15 @@ class Attention(nn.Module):
 
 
 class RNNAttnDecoder(nn.Module):
-    def __init__(self, n_vocab, n_emb, n_unit, n_layer, dropout, attn):
+    def __init__(self, embedding, n_unit, n_layer, dropout, attn):
         super().__init__()
-        self.embedding = nn.Embedding(n_vocab, n_emb)
-        self.rnn = nn.LSTM(n_emb, n_unit, n_layer)
-        self.wc = nn.Linear(n_unit * 2, n_unit)
+        self.embedding = embedding
+        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
         self.attn = Attention(attn, n_unit)
-        self.wo = nn.Linear(n_unit, n_vocab)
+        self.wc = nn.Linear(n_unit * 2, n_unit)
+        self.wo = nn.Linear(n_unit, embedding.n_vocab)
         self.dropout = nn.Dropout(dropout)
-        self.n_vocab = n_vocab
+        self.n_vocab = embedding.n_vocab
 
     def forward(self, tgt_words, hs, enc_outs):
         tgt_words = tgt_words.unsqueeze(0)
@@ -118,6 +129,7 @@ class Seq2seq(nn.Module):
         outputs = torch.zeros((maxlen, bs, self.decoder.n_vocab))
         outputs = outputs.to(self.device)
         for i in range(1, maxlen):
+            # biのときここでhsのback-wardだけ使うか，sumとるか，concatするか
             preds, hs = self.decoder(inputs, hs, enc_outs)
             outputs[i] = preds
             teaching_force = random.random() < teaching_force_ratio

@@ -14,7 +14,7 @@ from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
 
-from nets import RNNEncoder, RNNAttnDecoder, Seq2seq
+from nets import Embedding, RNNEncoder, RNNAttnDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -24,6 +24,8 @@ def main():
     parser.add_argument('--train', required=True, help='TSV file for training (.tsv)')
     parser.add_argument('--valid', required=True, help='TSV file for validation (.tsv)')
     parser.add_argument('--save-dir', required=True, help='Save directory')
+    parser.add_argument('--encoder', default='LSTM', choices=['LSTM', 'biLSTM'],
+                        help='Select type of encoder')
     parser.add_argument('--attn', choices=['dot', 'general', 'concat'], default='dot',
                         help='Select attention method')
     parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
@@ -37,9 +39,11 @@ def main():
     parser.add_argument('--vocabsize', type=int, default=40000, help='vocabulary size')
     parser.add_argument('--init-emb', choices=['fasttext', 'glove', 'none'], default='none',
                         help='Select pretrained word embeddings')
+    parser.add_argument('--share-emb', default=False, action='store_true',
+                        help='Whether to share embedding layers')
     args = parser.parse_args()
 
-    # setup data
+    ### setup data ###
     print('setup data...\n')
     SRC = Field(init_token='<sos>', eos_token='<eos>', lower=True)
     TRG = Field(init_token='<sos>', eos_token='<eos>', lower=True)
@@ -52,11 +56,11 @@ def main():
         fields=[('src', SRC), ('trg', TRG)]
     )
 
+    # pre-trained word embeddingsを使うかどうか
     if args.init_emb == 'none':
         SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
         TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
     else:
-        # use pre-trained word embeddings
         if args.init_emb == 'fasttext':
             vectors = FastText(language='en')
         elif args.init_emb == 'glove':
@@ -87,10 +91,22 @@ def main():
     print(f'# unique tokens in source vocabulary: {src_vocabsize}')
     print(f'# unique tokens in target vocabulary: {trg_vocabsize} \n')
 
-    # setup model
+    ### setup model ###
     sos_id = TRG.vocab.stoi['<sos>']
-    encoder = RNNEncoder(src_vocabsize, args.embsize, args.unit, args.layer, args.dropout)
-    decoder = RNNAttnDecoder(trg_vocabsize, args.embsize, args.unit, args.layer, args.dropout, args.attn)
+    # Embedding Layerを共有するかどうか
+    if args.share_emb:
+        max_vocabsize = max(src_vocabsize, trg_vocabsize)
+        embedding = Embedding(max_vocabsize, args.embsize)
+        encoder_embedding = embedding
+        decoder_embedding = embedding
+    else:
+        encoder_embedding = Embedding(src_vocabsize, args.embsize)
+        decoder_embedding = Embedding(trg_vocabsize, args.embsize)
+    # Encoderでbidirectionalにするかどうか
+    bidirectional = True if args.encoder == 'biLSTM' else False
+
+    encoder = RNNEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional=bidirectional)
+    decoder = RNNAttnDecoder(decoder_embedding, args.unit, args.layer, args.dropout, args.attn)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     print(model)
     print()
@@ -98,12 +114,12 @@ def main():
     optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
 
-    # make directory for saving
+    ### make directory for saving ###
     if os.path.exists(args.save_dir):
         shutil.rmtree(args.save_dir)
     os.mkdir(args.save_dir)
 
-    # save parameters
+    ### save parameters ###
     params = args.__dict__
     params.update(train_size=train_size, valid_size=valid_size,
                   src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize)
@@ -112,7 +128,7 @@ def main():
     pprint.pprint(params, indent=4)
     print()
 
-    # training and validation
+    ### training and validation ###
     best_loss = float('inf')
     for epoch in range(args.epoch):
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
