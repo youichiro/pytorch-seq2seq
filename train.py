@@ -14,7 +14,7 @@ from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
 
-from nets import Embedding, RNNEncoder, RNNAttnDecoder, Seq2seq
+from nets import Embedding, LSTMEncoder, LSTMAttnDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--train', required=True, help='TSV file for training (.tsv)')
     parser.add_argument('--valid', required=True, help='TSV file for validation (.tsv)')
     parser.add_argument('--save-dir', required=True, help='Save directory')
-    parser.add_argument('--encoder', default='LSTM', choices=['LSTM', 'biLSTM'],
+    parser.add_argument('--encoder', default='LSTM', choices=['LSTM', 'BiLSTM'],
                         help='Select type of encoder')
     parser.add_argument('--attn', choices=['dot', 'general', 'concat'], default='dot',
                         help='Select attention method')
@@ -103,10 +103,9 @@ def main():
         encoder_embedding = Embedding(src_vocabsize, args.embsize)
         decoder_embedding = Embedding(trg_vocabsize, args.embsize)
     # Encoderでbidirectionalにするかどうか
-    bidirectional = True if args.encoder == 'biLSTM' else False
-
-    encoder = RNNEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional=bidirectional)
-    decoder = RNNAttnDecoder(decoder_embedding, args.unit, args.layer, args.dropout, args.attn)
+    bidirectional = True if args.encoder == 'BiLSTM' else False
+    encoder = LSTMEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional=bidirectional)
+    decoder = LSTMAttnDecoder(decoder_embedding, args.unit, args.layer, args.dropout, args.attn, encoder_output_units=encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     print(model)
     print()

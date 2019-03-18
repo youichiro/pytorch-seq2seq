@@ -18,20 +18,33 @@ class Embedding(nn.Module):
         return self.embedding(words)
 
 
-class RNNEncoder(nn.Module):
+class LSTMEncoder(nn.Module):
     def __init__(self, embedding, n_unit, n_layer, dropout, bidirectional=False):
         super().__init__()
         self.embedding = embedding
         self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer, bidirectional=bidirectional)
         self.dropout = nn.Dropout(dropout)
+        self.n_layer = n_layer
+        self.bidirectional = bidirectional
+        self.output_units = n_unit
+        if bidirectional:
+            self.output_units *= 2
 
     def forward(self, src_seqs):
         embedded = self.dropout(self.embedding(src_seqs))
-        enc_outs, hs = self.rnn(embedded)
-        return enc_outs, hs
+        enc_outs, (hs, cs) = self.rnn(embedded)  # hs: (n_layer * n_directions, batch, n_unit)
+        batch = hs.size()[1]
+
+        if self.bidirectional:
+            def combine_bidir(outs):
+                return outs.view(self.n_layer, 2, batch, -1).transpose(1, 2).contiguous().view(self.n_layer, batch, -1)
+            hs = combine_bidir(hs)
+            cs = combine_bidir(cs)
+
+        return enc_outs, (hs, cs)
 
 
-class RNNDecoder(nn.Module):
+class LSTMDecoder(nn.Module):
     def __init__(self, embedding, n_unit, n_layer, dropout):
         super().__init__()
         self.embedding = embedding
@@ -49,46 +62,37 @@ class RNNDecoder(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, method, n_unit):
+    def __init__(self, method, input_dim, output_dim):
         super().__init__()
         self.method = method
-        self.n_unit = n_unit
         if self.method not in ['dot', 'general', 'concat']:
             raise ValueError(self.method, "Is not an appropriate attention method.")
         if method == 'general':
-            self.w = nn.Linear(n_unit, n_unit)
+            self.w = nn.Linear(input_dim, output_dim)
         elif method == 'concat':
-            self.w = nn.Linear(n_unit * 2, n_unit)
-            self.v = torch.nn.Parameter(torch.FloatTensor(n_unit))
+            self.w = nn.Linear(input_dim + output_dim, output_dim)
+            self.v = torch.nn.Parameter(torch.FloatTensor(input_dim))
 
     def forward(self, dec_out, enc_outs):
         if self.method == 'dot':
-            attn_energies = self.dot_score(dec_out, enc_outs)
+            attn_energies = torch.sum(dec_out * enc_outs, dim=2)
         elif self.method == 'general':
-            attn_energies = self.general_score(dec_out, enc_outs)
+            energy = self.w(enc_outs)
+            attn_energies = torch.sum(dec_out * energy, dim=2)
         elif self.method == 'concat':
-            attn_energies = self.concat_score(dec_out, enc_outs)
+            dec_out = dec_out.expand(enc_outs.shape[0], -1, -1)
+            energy = torch.cat((dec_out, enc_outs), 2)
+            attn_energies = torch.sum(self.v * self.w(energy).tanh(), dim=2)
         return F.softmax(attn_energies, dim=0)
 
-    def dot_score(self, dec_out, enc_outs):
-        return torch.sum(dec_out * enc_outs, dim=2)
 
-    def general_score(self, dec_out, enc_outs):
-        energy = self.w(enc_outs)
-        return torch.sum(dec_out * energy, dim=2)
-
-    def concat_score(self, dec_out, enc_outs):
-        dec_out = dec_out.expand(enc_outs.shape[0], -1, -1)
-        energy = torch.cat((dec_out, enc_outs), 2)
-        return torch.sum(self.v * self.w(energy).tanh(), dim=2)
-
-
-class RNNAttnDecoder(nn.Module):
-    def __init__(self, embedding, n_unit, n_layer, dropout, attn):
+class LSTMAttnDecoder(nn.Module):
+    def __init__(self, embedding, n_unit, n_layer, dropout, attn, encoder_output_units):
         super().__init__()
+        self.encoder_output_units = encoder_output_units
         self.embedding = embedding
         self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
-        self.attn = Attention(attn, n_unit)
+        self.attn = Attention(attn, encoder_output_units, n_unit)
         self.wc = nn.Linear(n_unit * 2, n_unit)
         self.wo = nn.Linear(n_unit, embedding.n_vocab)
         self.dropout = nn.Dropout(dropout)
