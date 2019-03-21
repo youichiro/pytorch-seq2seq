@@ -14,7 +14,7 @@ from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
 
-from nets import Embedding, LSTMEncoder, LSTMAttnDecoder, Seq2seq
+from nets import Embedding, LSTMEncoder, LSTMDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -26,8 +26,8 @@ def main():
     parser.add_argument('--save-dir', required=True, help='Save directory')
     parser.add_argument('--encoder', default='LSTM', choices=['LSTM', 'BiLSTM'],
                         help='Select type of encoder')
-    parser.add_argument('--attn', choices=['dot', 'general', 'concat'], default='dot',
-                        help='Select attention method')
+    parser.add_argument('--attn', default=False, action='store_true',
+                        help='Whether to add attention layer')
     parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
     parser.add_argument('--embsize', type=int, default=128, help='Embedding size')
     parser.add_argument('--unit', type=int, default=128, help='Number of unit')
@@ -104,8 +104,10 @@ def main():
         decoder_embedding = Embedding(trg_vocabsize, args.embsize)
     # Encoderでbidirectionalにするかどうか
     bidirectional = True if args.encoder == 'BiLSTM' else False
-    encoder = LSTMEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional=bidirectional)
-    decoder = LSTMAttnDecoder(decoder_embedding, args.unit, args.layer, args.dropout, args.attn, encoder_output_units=encoder.output_units)
+
+    encoder = LSTMEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional)
+    decoder = LSTMDecoder(decoder_embedding, args.unit, args.layer,
+                          args.dropout, args.attn, encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     print(model)
     print()

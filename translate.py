@@ -2,7 +2,7 @@
 
 import argparse
 import torch
-from nets import RNNEncoder, RNNAttnDecoder, Seq2seq
+from nets import Embedding, LSTMEncoder, LSTMDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -38,10 +38,17 @@ def main():
     trg_itos = state['vocabs']['trg_itos']
 
     sos_id = trg_stoi['<sos>']
-    encoder = RNNEncoder(len(src_itos), params['embsize'], params['unit'],
-                         params['layer'], 0.0)
-    decoder = RNNAttnDecoder(len(trg_itos), params['embsize'], params['unit'],
-                             params['layer'], 0.0, params['attn'])
+    if params['share_emb']:
+        max_vocabsize = max(params['src_vocabsize'], params['trg_vocabsize'])
+        embedding = Embedding(max_vocabsize, params['embsize'])
+        encoder_embedding = embedding
+        decoder_embedding = embedding
+    else:
+        encoder_embedding = Embedding(params['src_vocabsize'], params['trg_vocabsize'])
+    bidirectional = True if params['encoder'] == 'BiLSTM' else False
+    encoder = LSTMEncoder(encoder_embedding, params['unit'], params['layer'], 0.0, bidirectional)
+    decoder = LSTMDecoder(decoder_embedding, params['unit'], params['layer'],
+                          0.0, params['attn'], encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     model.load_state_dict(state['state_dict'])
 

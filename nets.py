@@ -31,9 +31,9 @@ class LSTMEncoder(nn.Module):
             self.output_units *= 2
 
     def forward(self, src_seqs):
+        batch = src_seqs.size(1)
         embedded = self.dropout(self.embedding(src_seqs))
         enc_outs, (hs, cs) = self.rnn(embedded)  # hs: (n_layer * n_directions, batch, n_unit)
-        batch = hs.size()[1]
 
         if self.bidirectional:
             def combine_bidir(outs):
@@ -44,69 +44,54 @@ class LSTMEncoder(nn.Module):
         return enc_outs, (hs, cs)
 
 
-class LSTMDecoder(nn.Module):
-    def __init__(self, embedding, n_unit, n_layer, dropout):
+class AttentionLayer(nn.Module):
+    def __init__(self, dec_embed_dim, enc_embed_dim):
         super().__init__()
-        self.embedding = embedding
-        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
-        self.wo = nn.Linear(n_unit, embedding.n_vocab)
-        self.dropout = nn.Dropout(dropout)
-        self.n_vocab = embedding.n_vocab
-
-    def forward(self, tgt_words, hs):
-        tgt_words = tgt_words.unsqueeze(0)  # 次元を一つ上げる
-        embedded = self.dropout(self.embedding(tgt_words))
-        dec_outs, hs = self.rnn(embedded, hs)
-        pred = self.wo(dec_outs.squeeze(0))  # 次元を一つ下げる
-        return pred, hs
-
-
-class Attention(nn.Module):
-    def __init__(self, method, input_dim, output_dim):
-        super().__init__()
-        self.method = method
-        if self.method not in ['dot', 'general', 'concat']:
-            raise ValueError(self.method, "Is not an appropriate attention method.")
-        if method == 'general':
-            self.w = nn.Linear(input_dim, output_dim)
-        elif method == 'concat':
-            self.w = nn.Linear(input_dim + output_dim, output_dim)
-            self.v = torch.nn.Parameter(torch.FloatTensor(input_dim))
+        self.input_proj = nn.Linear(dec_embed_dim, enc_embed_dim)
 
     def forward(self, dec_out, enc_outs):
-        if self.method == 'dot':
-            attn_energies = torch.sum(dec_out * enc_outs, dim=2)
-        elif self.method == 'general':
-            energy = self.w(enc_outs)
-            attn_energies = torch.sum(dec_out * energy, dim=2)
-        elif self.method == 'concat':
-            dec_out = dec_out.expand(enc_outs.shape[0], -1, -1)
-            energy = torch.cat((dec_out, enc_outs), 2)
-            attn_energies = torch.sum(self.v * self.w(energy).tanh(), dim=2)
-        return F.softmax(attn_energies, dim=0)
+        dec_out = self.input_proj(dec_out)
+        attn_scores = (enc_outs * dec_out).sum(dim=2)
+        attn_scores = F.softmax(attn_scores, dim=0)
+        return attn_scores
 
 
-class LSTMAttnDecoder(nn.Module):
-    def __init__(self, embedding, n_unit, n_layer, dropout, attn, encoder_output_units):
+class LSTMDecoder(nn.Module):
+    def __init__(self, embedding, n_unit, n_layer, dropout, attention, encoder_output_units):
         super().__init__()
-        self.encoder_output_units = encoder_output_units
         self.embedding = embedding
-        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
-        self.attn = Attention(attn, encoder_output_units, n_unit)
-        self.wc = nn.Linear(n_unit * 2, n_unit)
-        self.wo = nn.Linear(n_unit, embedding.n_vocab)
         self.dropout = nn.Dropout(dropout)
+        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
+        self.wo = nn.Linear(n_unit, embedding.n_vocab)
+        self.encoder_output_units = encoder_output_units
         self.n_vocab = embedding.n_vocab
+        if attention:
+            self.attn = AttentionLayer(n_unit, encoder_output_units)
+            self.wc = nn.Linear(n_unit + encoder_output_units, n_unit)
+        else:
+            self.attn = None
+        if encoder_output_units != n_unit:
+            self.encoder_hidden_proj = nn.Linear(encoder_output_units, n_unit)
+            self.encoder_cell_proj = nn.Linear(encoder_output_units, n_unit)
+        else:
+            self.encoder_hidden_proj = self.encoder_cell_proj = None
 
-    def forward(self, tgt_words, hs, enc_outs):
+    def forward(self, tgt_words, enc_outs, hs):
         tgt_words = tgt_words.unsqueeze(0)
         embedded = self.dropout(self.embedding(tgt_words))
-        dec_out, hs = self.rnn(embedded, hs)
-        attn_weights = self.attn(dec_out, enc_outs)
-        context = torch.bmm(attn_weights.transpose(1, 0).unsqueeze(1),
-                            enc_outs.transpose(1, 0)
-                  ).transpose(1, 0)
-        cats = self.wc(torch.cat((dec_out, context), dim=2)).tanh()
+        hiddens = hs[0]
+        cells = hs[1]
+        if self.encoder_hidden_proj is not None and hiddens.size(2) == self.encoder_output_units:
+            hiddens = self.encoder_hidden_proj(hiddens)
+            cells = self.encoder_cell_proj(cells)
+        dec_out, hs = self.rnn(embedded, (hiddens, cells))
+        if self.attn:
+            attn_weights = self.attn(dec_out, enc_outs)
+            context = torch.bmm(attn_weights.transpose(1, 0).unsqueeze(1),
+                                enc_outs.transpose(1, 0)).transpose(1, 0)
+            cats = self.wc(torch.cat((dec_out, context), dim=2)).tanh()
+        else:
+            cats = dec_out
         pred = self.wo(cats.squeeze(0))
         return pred, hs
 
@@ -133,8 +118,7 @@ class Seq2seq(nn.Module):
         outputs = torch.zeros((maxlen, bs, self.decoder.n_vocab))
         outputs = outputs.to(self.device)
         for i in range(1, maxlen):
-            # biのときここでhsのback-wardだけ使うか，sumとるか，concatするか
-            preds, hs = self.decoder(inputs, hs, enc_outs)
+            preds, hs = self.decoder(inputs, enc_outs, hs)
             outputs[i] = preds
             teaching_force = random.random() < teaching_force_ratio
             top1 = preds.max(1)[1]
