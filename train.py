@@ -112,8 +112,9 @@ def main():
     decoder = LSTMDecoder(decoder_embedding, args.unit, args.layer,
                           args.dropout, args.attn, encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
+    parameter_num = len(list(model.parameters()))
     print(model)
-    print(f'\n# parameter: {len(list(model.parameters()))}')
+    print(f'\n# parameter: {parameter_num}')
     print()
 
     optimizer = optim.Adam(model.parameters())
@@ -127,7 +128,7 @@ def main():
     ### save parameters ###
     params = args.__dict__
     params.update(train_size=train_size, valid_size=valid_size,
-                  src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize)
+                  src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize, parameter_num=parameter_num)
     json.dump(params, open(args.save_dir + '/params.json', 'w', encoding='utf-8'), ensure_ascii=False)
     print('parameters:')
     pprint.pprint(params, indent=4)
