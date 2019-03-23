@@ -112,7 +112,7 @@ def main():
     decoder = LSTMDecoder(decoder_embedding, args.unit, args.layer,
                           args.dropout, args.attn, encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
-    parameter_num = len(list(model.parameters()))
+    parameter_num = count_parameters(model)
     print(model)
     print(f'\n# parameter: {parameter_num}')
     print()
@@ -186,6 +186,10 @@ def eval(model, iterator, criterion):
             loss = criterion(outs[1:].view(-1, outs.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
     return epoch_loss / len(iterator)
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 if __name__ == '__main__':
