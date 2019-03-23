@@ -2,7 +2,7 @@
 
 import argparse
 import torch
-from nets import Embedding, LSTMEncoder, LSTMDecoder, Seq2seq
+from nets import Embedding, LSTMEncoder, NSE, LSTMDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -46,7 +46,10 @@ def main():
     else:
         encoder_embedding = Embedding(params['src_vocabsize'], params['trg_vocabsize'])
     bidirectional = True if params['encoder'] == 'BiLSTM' else False
-    encoder = LSTMEncoder(encoder_embedding, params['unit'], params['layer'], 0.0, bidirectional)
+    if params['encoder'] == 'NSE':
+        encoder = NSE(encoder_embedding, params['unit'], params['layer'], 0.0)
+    else:
+        encoder = LSTMEncoder(encoder_embedding, params['unit'], params['layer'], 0.0, bidirectional)
     decoder = LSTMDecoder(decoder_embedding, params['unit'], params['layer'],
                           0.0, params['attn'], encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
