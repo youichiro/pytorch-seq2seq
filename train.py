@@ -14,7 +14,7 @@ from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
 
-from nets import Embedding, LSTMEncoder, LSTMDecoder, Seq2seq
+from nets import Embedding, LSTMEncoder, NSE, LSTMDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--train', required=True, help='TSV file for training (.tsv)')
     parser.add_argument('--valid', required=True, help='TSV file for validation (.tsv)')
     parser.add_argument('--save-dir', required=True, help='Save directory')
-    parser.add_argument('--encoder', default='LSTM', choices=['LSTM', 'BiLSTM'],
+    parser.add_argument('--encoder', default='LSTM', choices=['LSTM', 'BiLSTM', 'NSE'],
                         help='Select type of encoder')
     parser.add_argument('--attn', default=False, action='store_true',
                         help='Whether to add attention layer')
@@ -105,7 +105,10 @@ def main():
     # Encoderでbidirectionalにするかどうか
     bidirectional = True if args.encoder == 'BiLSTM' else False
 
-    encoder = LSTMEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional)
+    if args.encoder == 'NSE':
+        encoder = NSE(encoder_embedding, args.unit, args.layer, args.dropout)
+    else:
+        encoder = LSTMEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional)
     decoder = LSTMDecoder(decoder_embedding, args.unit, args.layer,
                           args.dropout, args.attn, encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)

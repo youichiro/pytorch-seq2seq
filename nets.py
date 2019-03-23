@@ -44,6 +44,70 @@ class LSTMEncoder(nn.Module):
         return enc_outs, (hs, cs)
 
 
+class NSE(nn.Module):
+    def __init__(self, embedding, n_unit, n_layer, dropout):
+        super().__init__()
+        self.embedding = embedding
+        self.read_lstm = nn.LSTM(embedding.n_emb, n_unit, n_layer)
+        self.compose_mlp = nn.Linear(2 * n_unit, 2 * n_unit)
+        self.write_lstm = nn.LSTM(2 * n_unit, n_unit, n_layer)
+        self.dropout = nn.Dropout(dropout)
+        self.n_unit = n_unit
+        self.n_layer = n_layer
+        self.n_emb = embedding.n_emb
+        self.output_units = n_unit
+        assert self.n_emb == self.n_unit, "Should be same embsize and n_unit"
+
+    def forward(self, src_seqs):
+        srclen, batch = src_seqs.size()  # sec_seqs: (srclen, batch)
+        embedd = self.dropout(self.embedding(src_seqs))  # embedd: (srclen, batch, n_unit)
+        M_t = embedd.transpose(0, 1)  # M_t: (batch, srclen, n_unit)
+        outputs = []
+        for l in range(srclen):
+            x_t = embedd[l, :, :]  # x_t: (batch, n_unit)
+            o_t, m_t, z_t = self.read(M_t, x_t)
+            c_t = self.compose(o_t, m_t)
+            M_t, h_t, hs = self.write(M_t, c_t, z_t)
+            outputs.append(h_t)
+        outputs = torch.stack(outputs, dim=0)  # outputs: (srclen, batch, n_unit)
+        return outputs, hs
+
+    def read(self, M_t, x_t):
+        # M_t: (batch, srclen, n_unit)
+        # x_t: (batch, n_unit)
+        batch, srclen, n_unit = M_t.size()
+        o_t, _ = self.read_lstm(x_t.unsqueeze(0))  # o_t: (1, batch n_unit)
+        o_t = o_t.view(batch, n_unit)  # o_t: (batch, n_unit)
+        # o_t.unsqueeze(2): (batch, n_unit, 1)
+        # torch.matmul(M_t, o_t.unsqueeze(2)): (batch, srclen, 1)
+        z_t = F.softmax(torch.matmul(M_t, o_t.unsqueeze(2)).view(batch, srclen), dim=1)  # z_t: (batch, srclen)
+        # z_t.unsqueeze(1): (batch, 1, srclen)
+        m_t = torch.matmul(z_t.unsqueeze(1), M_t).view(batch, n_unit)  # m_t: (batch, n_unit)
+        return o_t, m_t, z_t
+
+    def compose(self, o_t, m_t):
+        # o_t: (batch, n_unit)
+        # m_t: (batch, n_unit)
+        c_t = self.compose_mlp(torch.cat((o_t, m_t), dim=1))  # c_t: (batch, 2 * n_unit)
+        return c_t
+
+
+    def write(self, M_t, c_t, z_t):
+        # M_t: (batch, srclen, n_unit)
+        # c_t: (batch, 2 * n_unit)
+        # z_t: (batch, srclen)
+        batch, srclen, n_unit = M_t.size()
+        h_t, hs = self.write_lstm(c_t.unsqueeze(0))  # h_t: (1, batch, n_unit)
+        h_t = h_t.view(batch, n_unit)  # h_t: (batch, n_unit)
+        # (1 - z_t).view(batch, srclen, 1): (batch, srclen, 1)
+        # (1 - z_t).view(batch, srclen, 1).repeat(1, 1, n_unit): (batch, srclen, n_unit)
+        M_t = (1 - z_t).view(batch, srclen, 1).repeat(1, 1, n_unit) * M_t  # M_t: (batch, srclen, n_unit)
+        # z_t.view(batch, srclen, 1).repeat(1, 1, n_unit): (batch, srclen, n_unit)
+        # h_t.view(batch, 1, n_unit).repeat(1, srclen, 1): (batch, srclen, n_unit)
+        M_t += z_t.view(batch, srclen, 1).repeat(1, 1, n_unit) * h_t.view(batch, 1, n_unit).repeat(1, srclen, 1)  # M_t: (batch, srclen, n_unit)
+        return M_t, h_t, hs
+
+
 class AttentionLayer(nn.Module):
     def __init__(self, dec_embed_dim, enc_embed_dim):
         super().__init__()
