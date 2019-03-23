@@ -113,6 +113,7 @@ def main():
                           args.dropout, args.attn, encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     print(model)
+    print(f'\n# parameter: {len(list(model.parameters()))}')
     print()
 
     optimizer = optim.Adam(model.parameters())
