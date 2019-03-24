@@ -8,7 +8,6 @@ then
   exit 1
 fi
 
-# errant_dir="/Users/you_pro/workspace/jnlp/bea2019/errant"
 script_dir=$(cd $(dirname $0); pwd)
 hypo_path="$1"
 corr_path="$2"
