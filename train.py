@@ -108,7 +108,6 @@ def main():
     else:
         encoder_embedding = EmbeddingLayer(src_vocabsize, args.embsize, src_pad_id)
         decoder_embedding = EmbeddingLayer(trg_vocabsize, args.embsize, trg_pad_id)
-    # Encoderでbidirectionalにするかどうか
     bidirectional = True if args.encoder == 'BiLSTM' else False
 
     if args.encoder == 'NSE':
@@ -125,8 +124,7 @@ def main():
     print()
 
     # Multi GPU
-    print(device)
-    if device == 'cuda':
+    if device.__str__() == 'cuda':
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = True
 
