@@ -11,6 +11,7 @@ import subprocess
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.backends.cudnn as cudnn
 from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
@@ -122,6 +123,12 @@ def main():
     print(model)
     print(f'\n# parameters: {parameter_num}')
     print()
+
+    # Multi GPU
+    print(device)
+    if device == 'cuda':
+        model = torch.nn.DataParallel(model)
+        cudnn.benchmark = True
 
     optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
