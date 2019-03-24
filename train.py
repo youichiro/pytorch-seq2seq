@@ -6,6 +6,7 @@ import argparse
 import json
 import shutil
 import pprint
+import subprocess
 
 import torch
 import torch.nn as nn
@@ -14,7 +15,8 @@ from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
 from tqdm import tqdm
 
-from nets import Embedding, LSTMEncoder, NSE, LSTMDecoder, Seq2seq
+from nets import EmbeddingLayer, LSTMEncoder, NSE, LSTMDecoder, Seq2seq
+from translate import get_sentence
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -93,15 +95,18 @@ def main():
 
     ### setup model ###
     sos_id = TRG.vocab.stoi['<sos>']
+    src_pad_id = SRC.vocab.stoi['<pad>']
+    trg_pad_id = TRG.vocab.stoi['<pad>']
     # Embedding Layerを共有するかどうか
     if args.share_emb:
-        max_vocabsize = max(src_vocabsize, trg_vocabsize)
-        embedding = Embedding(max_vocabsize, args.embsize)
+        vocabsize = max(src_vocabsize, trg_vocabsize)
+        assert src_pad_id == trg_pad_id
+        embedding = EmbeddingLayer(vocabsize, args.embsize, src_pad_id)
         encoder_embedding = embedding
         decoder_embedding = embedding
     else:
-        encoder_embedding = Embedding(src_vocabsize, args.embsize)
-        decoder_embedding = Embedding(trg_vocabsize, args.embsize)
+        encoder_embedding = EmbeddingLayer(src_vocabsize, args.embsize, src_pad_id)
+        decoder_embedding = EmbeddingLayer(trg_vocabsize, args.embsize, trg_pad_id)
     # Encoderでbidirectionalにするかどうか
     bidirectional = True if args.encoder == 'BiLSTM' else False
 
@@ -109,12 +114,13 @@ def main():
         encoder = NSE(encoder_embedding, args.unit, args.layer, args.dropout)
     else:
         encoder = LSTMEncoder(encoder_embedding, args.unit, args.layer, args.dropout, bidirectional)
+
     decoder = LSTMDecoder(decoder_embedding, args.unit, args.layer,
                           args.dropout, args.attn, encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
     parameter_num = count_parameters(model)
     print(model)
-    print(f'\n# parameter: {parameter_num}')
+    print(f'\n# parameters: {parameter_num}')
     print()
 
     optimizer = optim.Adam(model.parameters())
@@ -124,6 +130,7 @@ def main():
     if os.path.exists(args.save_dir):
         shutil.rmtree(args.save_dir)
     os.mkdir(args.save_dir)
+    os.mkdir(args.save_dir + '/results')
 
     ### save parameters ###
     params = args.__dict__
@@ -137,10 +144,12 @@ def main():
     ### training and validation ###
     best_loss = float('inf')
     for epoch in range(args.epoch):
+        is_first = True if epoch == 0 else False
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
-        valid_loss = eval(model, valid_iter, criterion)
+        valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos, is_first)
+
         # save model
-        model_path = args.save_dir + f'/model-e{epoch+1:02}.pt'
+        model_path = f'{args.save_dir}/model-e{epoch+1:02}.pt'
         state = {'vocabs': vocabs, 'params': params, 'state_dict': model.state_dict()}
         torch.save(state, model_path)
 
@@ -150,8 +159,35 @@ def main():
             model_path = args.save_dir + '/model-best.pt'
             torch.save(state, model_path)
 
+        # save validation src and trg if first epoch
+        result_dir = f'{args.save_dir}/results'
+        if is_first:
+            valid_src_path = result_dir + '/valid.src'
+            valid_tgt_path = result_dir + '/valid.tgt'
+            valid_ref_m2_path = result_dir + '/valid.ref.m2'
+            with open(valid_src_path, 'w') as f:
+                for s in sequences[1]:
+                    f.write(s + '\n')
+            with open(valid_tgt_path, 'w') as f:
+                for s in sequences[2]:
+                    f.write(s + '\n')
+            cmd = f'sh ./parallel_to_ref_m2.sh {valid_src_path} {valid_tgt_path} {valid_ref_m2_path}'
+            subprocess.check_call(cmd.split())
+            print(f'Create {valid_src_path}, {valid_tgt_path}, {valid_ref_m2_path}')
+
+        # save validation outputs
+        prefix = f'valid-e{epoch+1:02}'
+        valid_output_path = f'{result_dir}/{prefix}.sys'
+        with open(valid_output_path, 'w') as f:
+            for output in sequences[0]:
+                f.write(output + '\n')
+
+        # compute ERRANT score
+        cmd = f'sh ./compute_errant_score.sh {valid_output_path} {valid_tgt_path} {valid_ref_m2_path} {result_dir} {prefix}'
+        errant_score = subprocess.check_output(cmd.split()).decode("UTF-8").strip()
+
         # logging
-        logs = f"Epoch: {epoch+1:02}\tTrain loss: {train_loss:.3f}\tVal. Loss: {valid_loss:.3f}\n"
+        logs = f"Epoch: {epoch+1:02}\tTrain loss: {train_loss:.3f}\tVal. Loss: {valid_loss:.3f}\tERRANT score: {errant_score}\n"
         print(logs)
         with open(args.save_dir + '/logs.txt', 'a') as f:
             f.write(logs)
@@ -174,9 +210,12 @@ def train(model, iterator, optimizer, criterion, clip):
     return epoch_loss / len(iterator)
 
 
-def eval(model, iterator, criterion):
+def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
     model.eval()
     epoch_loss = 0
+    outputs = []
+    src_sentences = []
+    trg_sentences = []
 
     with torch.no_grad():
         for batch in iterator:
@@ -185,7 +224,26 @@ def eval(model, iterator, criterion):
             outs = model(src, trg, None, 0)
             loss = criterion(outs[1:].view(-1, outs.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
-    return epoch_loss / len(iterator)
+            # system output sentences
+            batchsize = outs.size(1)
+            for row in range(batchsize):
+                s = outs[:, row, :][1:].max(1)[1]
+                s = ' '.join(get_sentence(s, trg_itos))
+                outputs.append(s)
+
+            # validation sentences
+            if is_first:
+                src = src.transpose(0, 1)
+                trg = trg.transpose(0, 1)
+                for row in range(batchsize):
+                    s = ' '.join(get_sentence(src[row][1:], src_itos))
+                    t = ' '.join(get_sentence(trg[row][1:], trg_itos))
+                    src_sentences.append(s)
+                    trg_sentences.append(t)
+            else:
+                src_sentences = trg_sentences = None
+
+    return epoch_loss / len(iterator), (outputs, src_sentences, trg_sentences)
 
 
 def count_parameters(model):

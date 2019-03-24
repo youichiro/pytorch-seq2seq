@@ -7,10 +7,10 @@ import torch.optim as optim
 import random
 
 
-class Embedding(nn.Module):
-    def __init__(self, n_vocab, n_emb):
+class EmbeddingLayer(nn.Module):
+    def __init__(self, n_vocab, n_emb, padding_idx):
         super().__init__()
-        self.embedding = nn.Embedding(n_vocab, n_emb)
+        self.embedding = Embedding(n_vocab, n_emb, padding_idx)
         self.n_vocab = n_vocab
         self.n_emb = n_emb
 
@@ -22,7 +22,7 @@ class LSTMEncoder(nn.Module):
     def __init__(self, embedding, n_unit, n_layer, dropout, bidirectional=False):
         super().__init__()
         self.embedding = embedding
-        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer, bidirectional=bidirectional)
+        self.rnn = LSTM(embedding.n_emb, n_unit, n_layer, bidirectional=bidirectional)
         self.dropout = nn.Dropout(dropout)
         self.n_layer = n_layer
         self.bidirectional = bidirectional
@@ -48,9 +48,9 @@ class NSE(nn.Module):
     def __init__(self, embedding, n_unit, n_layer, dropout):
         super().__init__()
         self.embedding = embedding
-        self.read_lstm = nn.LSTM(embedding.n_emb, n_unit, n_layer)
-        self.compose_mlp = nn.Linear(2 * n_unit, 2 * n_unit)
-        self.write_lstm = nn.LSTM(2 * n_unit, n_unit, n_layer)
+        self.read_lstm = LSTM(embedding.n_emb, n_unit, num_layers=1)
+        self.compose_mlp = Linear(2 * n_unit, 2 * n_unit)
+        self.write_lstm = LSTM(2 * n_unit, n_unit, n_layer)
         self.dropout = nn.Dropout(dropout)
         self.n_unit = n_unit
         self.n_layer = n_layer
@@ -125,18 +125,18 @@ class LSTMDecoder(nn.Module):
         super().__init__()
         self.embedding = embedding
         self.dropout = nn.Dropout(dropout)
-        self.rnn = nn.LSTM(embedding.n_emb, n_unit, n_layer)
-        self.wo = nn.Linear(n_unit, embedding.n_vocab)
+        self.rnn = LSTM(embedding.n_emb, n_unit, n_layer)
+        self.wo = Linear(n_unit, embedding.n_vocab)
         self.encoder_output_units = encoder_output_units
         self.n_vocab = embedding.n_vocab
         if attention:
             self.attn = AttentionLayer(n_unit, encoder_output_units)
-            self.wc = nn.Linear(n_unit + encoder_output_units, n_unit)
+            self.wc = Linear(n_unit + encoder_output_units, n_unit)
         else:
             self.attn = None
         if encoder_output_units != n_unit:
-            self.encoder_hidden_proj = nn.Linear(encoder_output_units, n_unit)
-            self.encoder_cell_proj = nn.Linear(encoder_output_units, n_unit)
+            self.encoder_hidden_proj = Linear(encoder_output_units, n_unit)
+            self.encoder_cell_proj = Linear(encoder_output_units, n_unit)
         else:
             self.encoder_hidden_proj = self.encoder_cell_proj = None
 
@@ -188,3 +188,26 @@ class Seq2seq(nn.Module):
             top1 = preds.max(1)[1]
             inputs = (tgt_seqs[i] if teaching_force else top1)
         return outputs
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx):
+    m = nn.Embedding(num_embeddings,embedding_dim, padding_idx=padding_idx)
+    nn.init.uniform_(m.weight, -0.1, 0.1)
+    nn.init.constant_(m.weight[padding_idx], 0)
+    return m
+
+
+def LSTM(input_size, hidden_size, num_layers, **kwargs):
+    m = nn.LSTM(input_size, hidden_size, num_layers, **kwargs)
+    for name, param in m.named_parameters():
+        if 'weight' in name or 'bias' in name:
+            param.data.uniform_(-0.1, 0.1)
+    return m
+
+
+def Linear(in_features, out_features, bias=True, dropout=0):
+    m = nn.Linear(in_features, out_features, bias=bias)
+    m.weight.data.uniform_(-0.1, 0.1)
+    if bias:
+        m.bias.data.uniform_(-0.1, 0.1)
+    return m
