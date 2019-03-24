@@ -36,6 +36,7 @@ def main():
     parser.add_argument('--unit', type=int, default=128, help='Number of unit')
     parser.add_argument('--layer', type=int, default=2, help='Number of layer')
     parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate')
+    parser.add_argument('--lr', type=float, default=0.3, help='Learning rate')
     parser.add_argument('--clip', type=float, default=10, help='Clipping gradients')
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
     parser.add_argument('--minfreq', type=int, default=2, help='Min word frequency')
@@ -128,7 +129,7 @@ def main():
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = True
 
-    optimizer = optim.Adam(model.parameters())
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
 
     ### make directory for saving ###
