@@ -2,7 +2,7 @@
 
 import argparse
 import torch
-from nets import Embedding, LSTMEncoder, NSE, LSTMDecoder, Seq2seq
+from nets import EmbeddingLayer, LSTMEncoder, NSE, LSTMDecoder, Seq2seq
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -36,20 +36,26 @@ def main():
     src_itos = state['vocabs']['src_itos']
     trg_stoi = state['vocabs']['trg_stoi']
     trg_itos = state['vocabs']['trg_itos']
+    src_pad_id = src_stoi['<pad>']
+    trg_pad_id = trg_stoi['<pad>']
 
     sos_id = trg_stoi['<sos>']
     if params['share_emb']:
         max_vocabsize = max(params['src_vocabsize'], params['trg_vocabsize'])
-        embedding = Embedding(max_vocabsize, params['embsize'])
+        assert src_pad_id == trg_pad_id
+        embedding = EmbeddingLayer(max_vocabsize, params['embsize'], src_pad_id)
         encoder_embedding = embedding
         decoder_embedding = embedding
     else:
-        encoder_embedding = Embedding(params['src_vocabsize'], params['trg_vocabsize'])
+        encoder_embedding = EmbeddingLayer(params['src_vocabsize'], params['embsize'], src_pad_id)
+        decoder_embedding = EmbeddingLayer(params['trg_vocabsize'], params['embsize'], trg_pad_id)
     bidirectional = True if params['encoder'] == 'BiLSTM' else False
+
     if params['encoder'] == 'NSE':
         encoder = NSE(encoder_embedding, params['unit'], params['layer'], 0.0)
     else:
         encoder = LSTMEncoder(encoder_embedding, params['unit'], params['layer'], 0.0, bidirectional)
+
     decoder = LSTMDecoder(decoder_embedding, params['unit'], params['layer'],
                           0.0, params['attn'], encoder.output_units)
     model = Seq2seq(encoder, decoder, sos_id, device).to(device)
