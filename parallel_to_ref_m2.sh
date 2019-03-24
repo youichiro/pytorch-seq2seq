@@ -6,6 +6,6 @@ then
   echo "Bad arguments for $0"
   exit 1
 fi
-errant_dir="/Users/you_pro/workspace/jnlp/bea2019/errant"
+# errant_dir="/Users/you_pro/workspace/jnlp/bea2019/errant"
 # create M2 file: ref.m2
-python $errant_dir/parallel_to_m2.py -orig $1 -cor $2 -out $3
+python $ERRANT_DIR/parallel_to_m2.py -orig $1 -cor $2 -out $3
