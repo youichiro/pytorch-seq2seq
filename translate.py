@@ -26,7 +26,7 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--model', required=True, help='Model file (.pt)')
     parser.add_argument('--test', required=True, help='Test file')
-    parser.add_argument('--maxlen', type=int, default=20, help='Max length')
+    parser.add_argument('--maxlen', type=int, default=70, help='Max length')
     parser.add_argument('--beamsize', type=int, default=None, help='Num of Beam Search width')
     args = parser.parse_args()
 

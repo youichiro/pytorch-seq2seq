@@ -40,6 +40,7 @@ def main():
     parser.add_argument('--clip', type=float, default=10, help='Clipping gradients')
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
     parser.add_argument('--minfreq', type=int, default=2, help='Min word frequency')
+    parser.add_argument('--maxlen', type=int, default=70, help='Max number of words for validation')
     parser.add_argument('--vocabsize', type=int, default=40000, help='vocabulary size')
     parser.add_argument('--init-emb', choices=['fasttext', 'glove', 'none'], default='none',
                         help='Select pretrained word embeddings')
@@ -153,7 +154,9 @@ def main():
     for epoch in range(args.epoch):
         is_first = True if epoch == 0 else False
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
-        valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos, is_first)
+        valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos, args.maxlen, is_first)
+
+        print(f'# output sentences: {len(sequences[0])}')
 
         # save model
         model_path = f'{args.save_dir}/model-e{epoch+1:02}.pt'
@@ -217,7 +220,7 @@ def train(model, iterator, optimizer, criterion, clip):
     return epoch_loss / len(iterator)
 
 
-def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
+def eval(model, iterator, criterion, src_itos, trg_itos, maxlen, is_first):
     model.eval()
     epoch_loss = 0
     outputs = []
@@ -228,7 +231,7 @@ def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
         for batch in iterator:
             src = batch.src
             trg = batch.trg
-            outs = model(src, trg, None, 0)
+            outs = model(src, None, maxlen, 0)
             loss = criterion(outs[1:].view(-1, outs.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
             # system output sentences
