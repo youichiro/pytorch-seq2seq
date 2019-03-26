@@ -154,15 +154,17 @@ def main():
     for epoch in range(args.epoch):
         is_first = True if epoch == 0 else False
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
-        valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos, args.maxlen, is_first)
+        valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos,  is_first)
 
         print(f'# output sentences: {len(sequences[0])}')
         print()
         print('--src_sentences--')
-        print(sequences[1])
+        for i in range(3):
+            print(sequences[1][i])
         print()
         print('--tgt_sentences--')
-        print(sequences[2])
+        for i in range(3):
+            print(sequences[2][i])
         print()
 
         # save model
@@ -227,7 +229,7 @@ def train(model, iterator, optimizer, criterion, clip):
     return epoch_loss / len(iterator)
 
 
-def eval(model, iterator, criterion, src_itos, trg_itos, maxlen, is_first):
+def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
     model.eval()
     epoch_loss = 0
     outputs = []
@@ -238,7 +240,7 @@ def eval(model, iterator, criterion, src_itos, trg_itos, maxlen, is_first):
         for batch in iterator:
             src = batch.src
             trg = batch.trg
-            outs = model(src, None, maxlen, 0)
+            outs = model(src, trg, None, 0)
             loss = criterion(outs[1:].view(-1, outs.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
             # system output sentences
@@ -259,7 +261,7 @@ def eval(model, iterator, criterion, src_itos, trg_itos, maxlen, is_first):
                 trg_sentences.append(t)
 
             # else:
-            src_sentences = trg_sentences = None
+            #     src_sentences = trg_sentences = None
 
     return epoch_loss / len(iterator), (outputs, src_sentences, trg_sentences)
 
