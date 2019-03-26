@@ -72,7 +72,7 @@ def main():
             output = model(sequence, None, args.maxlen, 0.0)  # output: (# sentence, 1, trglen)
             output = output.squeeze(1)[1:].max(1)[1]
         else:
-            output = model.beam(sequence, None, args.maxlen, args.beamsize, topk=1)
+            output = model.beam(sequence, args.maxlen, args.beamsize, topk=1)
             output = output[0][0][1:]
 
         output = get_sentence(output, trg_itos)
