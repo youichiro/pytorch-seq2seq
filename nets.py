@@ -207,7 +207,8 @@ class Seq2seq(nn.Module):
             encoder_output = enc_outs[:, b, :].unsqueeze(1)  # encoder_output: (srclen, 1, unit)
 
             # Start with the start of the sentence token
-            decoder_input = torch.LongTensor([self.sos_id], device=self.device)  # decoder_input: (1, )
+            decoder_input = torch.ones(1, dtype=torch.int64) * self.sos_id  # decoder_input: (1, )
+            decoder_input = decoder_input.to(self.device)
 
             # Number of sentence to generate
             end_nodes = []
@@ -295,7 +296,7 @@ class BeamSearchNode:
 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):
-    m = nn.Embedding(num_embeddings,embedding_dim, padding_idx=padding_idx)
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     nn.init.uniform_(m.weight, -0.1, 0.1)
     nn.init.constant_(m.weight[padding_idx], 0)
     return m
