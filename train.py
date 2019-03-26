@@ -97,6 +97,7 @@ def main():
 
     ### setup model ###
     sos_id = TRG.vocab.stoi['<sos>']
+    eos_id = TRG.vocab.stoi['<eos>']
     src_pad_id = SRC.vocab.stoi['<pad>']
     trg_pad_id = TRG.vocab.stoi['<pad>']
     # Embedding Layerを共有するかどうか
@@ -118,7 +119,7 @@ def main():
 
     decoder = LSTMDecoder(decoder_embedding, args.unit, args.layer,
                           args.dropout, args.attn, encoder.output_units)
-    model = Seq2seq(encoder, decoder, sos_id, device).to(device)
+    model = Seq2seq(encoder, decoder, sos_id, eos_id, device).to(device)
     parameter_num = count_parameters(model)
     print(model)
     print(f'\n# parameters: {parameter_num}')

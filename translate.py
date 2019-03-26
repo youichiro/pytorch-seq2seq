@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--model', required=True, help='Model file (.pt)')
     parser.add_argument('--test', required=True, help='Test file')
     parser.add_argument('--maxlen', type=int, default=20, help='Max length')
+    parser.add_argument('--beamsize', type=int, default=None, help='Num of Beam Search width')
     args = parser.parse_args()
 
     # load model state
@@ -40,6 +41,7 @@ def main():
     trg_pad_id = trg_stoi['<pad>']
 
     sos_id = trg_stoi['<sos>']
+    eos_id = trg_stoi['<eos>']
     if params['share_emb']:
         max_vocabsize = max(params['src_vocabsize'], params['trg_vocabsize'])
         assert src_pad_id == trg_pad_id
@@ -58,7 +60,7 @@ def main():
 
     decoder = LSTMDecoder(decoder_embedding, params['unit'], params['layer'],
                           0.0, params['attn'], encoder.output_units)
-    model = Seq2seq(encoder, decoder, sos_id, device).to(device)
+    model = Seq2seq(encoder, decoder, sos_id, eos_id, device).to(device)
     model.load_state_dict(state['state_dict'])
 
     # load source file
@@ -66,8 +68,13 @@ def main():
 
     for sequence in src_data:
         sequence = sequence.view(sequence.shape[0], -1).to(device)
-        output = model(sequence, None, args.maxlen, 0.0)
-        output = output.squeeze(1)[1:].max(1)[1]
+        if args.beamsize is None:
+            output = model(sequence, None, args.maxlen, 0.0)  # output: (# sentence, 1, trglen)
+            output = output.squeeze(1)[1:].max(1)[1]
+        else:
+            output = model.beam(sequence, None, args.maxlen, args.beamsize, topk=1)
+            output = output[0][0][1:]
+
         output = get_sentence(output, trg_itos)
         if not output:
             print("NOTOKENS")

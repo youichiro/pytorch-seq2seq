@@ -1,10 +1,13 @@
 #-*- coding: utf-8 -*-
 
+import random
+import operator
+from queue import PriorityQueue
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import random
 
 
 class EmbeddingLayer(nn.Module):
@@ -161,11 +164,12 @@ class LSTMDecoder(nn.Module):
 
 
 class Seq2seq(nn.Module):
-    def __init__(self, encoder, decoder, sos_id, device):
+    def __init__(self, encoder, decoder, sos_id, eos_id, device):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.sos_id = sos_id
+        self.eos_id = eos_id
         self.device = device
 
     def forward(self, src_seqs, tgt_seqs, maxlen, teaching_force_ratio=0.5):
@@ -188,6 +192,106 @@ class Seq2seq(nn.Module):
             top1 = preds.max(1)[1]
             inputs = (tgt_seqs[i] if teaching_force else top1)
         return outputs
+
+    def beam(self, src_seqs, tgt_seqs, maxlen, beam_width=3, topk=1):
+        # reffer to https://github.com/budzianowski/PyTorch-Beam-Search-Decoding/blob/master/decode_beam.py
+
+        batchsize = src_seqs.size(1)  # sec_seqs: (srclen, batch)
+        enc_outs, hs = self.encoder(src_seqs)
+            # enc_outs: (srclen, batch, unit * (2 if BiLSTM else 1))
+            # hs[0]: (layer, batch, unit * (2 if BiLSTM else 1))
+        decoded_batch = []
+
+        for b in range(batchsize):
+            decoder_hidden = (hs[0][:, b, :].unsqueeze(1), hs[1][:, b, :].unsqueeze(1))  # decoder_hidden: ((layer, 1, unit), (layer, 1, unit))
+            encoder_output = enc_outs[:, b, :].unsqueeze(1)  # encoder_output: (srclen, 1, unit)
+
+            # Start with the start of the sentence token
+            decoder_input = torch.LongTensor([self.sos_id], device=self.device)  # decoder_input: (1, )
+
+            # Number of sentence to generate
+            end_nodes = []
+            number_required = min((topk + 1), topk - len(end_nodes))
+
+            # starting node
+            node = BeamSearchNode(decoder_hidden, None, decoder_input, 0, 1)
+            nodes = PriorityQueue()
+
+            # start the queue
+            nodes.put((-node.eval(), node))
+            qsize = 1
+
+            # start beam search
+            while True:
+                # give up when decoding takes too long
+                if qsize > 2000: break
+
+                score, n = nodes.get()
+                decoder_input = n.word_id
+                decoder_hidden = n.h
+
+                if n.word_id.item() == self.eos_id and n.prev_node != None:
+                    end_nodes.append((score, n))
+                    if len(end_nodes) >= number_required:
+                        break
+                    else:
+                        continue
+
+                # decode for one step using decoder
+                decoder_output, decoder_hidden = self.decoder(decoder_input, encoder_output, decoder_hidden)
+                    # decoder_output: (1, n_vocab)
+                    # decoder_hidden[0]: (layer, 1, unit)
+
+                log_prob, indexes = torch.topk(decoder_output, beam_width)
+                    # log_prob: (1, beam_width)
+                    # indexes: (1, beam_width)
+                next_nodes = []
+
+                for new_k in range(beam_width):
+                    decoded_t = indexes[0][new_k].unsqueeze(0)  # decoded_t: (1, )
+                    log_p = log_prob[0][new_k].item()
+                    node = BeamSearchNode(decoder_hidden, n, decoded_t, n.log_p + log_p, n.len + 1)
+                    score = -node.eval()
+                    next_nodes.append((score, node))
+
+                # put item into queue
+                for i in range(len(next_nodes)):
+                    score, nn = next_nodes[i]
+                    nodes.put((score, nn))
+                qsize += len(next_nodes) - 1
+
+            # choose nbest paths, back trace them
+            if len(end_nodes) == 0:
+                end_nodes = [nodes.get() for _ in range(topk)]
+            utterances = []
+            for score, n in sorted(end_nodes, key=operator.itemgetter(0)):
+                utterance = []
+                utterance.append(n.word_id)
+                # back trace
+                while n.prev_node != None:
+                    n = n.prev_node
+                    utterance.append(n.word_id)
+                utterance = utterance[::-1]
+                utterances.append(utterance)
+
+            decoded_batch.append(utterances)
+
+        return decoded_batch
+
+
+
+class BeamSearchNode:
+    def __init__(self, hidden_state, previous_node, word_id, log_prob, length):
+        self.h = hidden_state
+        self.prev_node = previous_node
+        self.word_id = word_id
+        self.log_p = log_prob
+        self.len = length
+
+    def eval(self, alpha=1.0):
+        reward = 0
+        # Add here a function for shaping a reward
+        return self.log_p / float(self.len - 1 + 1e-6) + alpha * reward
 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):
