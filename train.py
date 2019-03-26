@@ -156,17 +156,6 @@ def main():
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
         valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos,  is_first)
 
-        print(f'# output sentences: {len(sequences[0])}')
-        print()
-        print('--src_sentences--')
-        for i in range(3):
-            print(sequences[1][i])
-        print()
-        print('--tgt_sentences--')
-        for i in range(3):
-            print(sequences[2][i])
-        print()
-
         # save model
         model_path = f'{args.save_dir}/model-e{epoch+1:02}.pt'
         state = {'vocabs': vocabs, 'params': params, 'state_dict': model.state_dict()}
@@ -251,17 +240,17 @@ def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
                 outputs.append(s)
 
             # validation sentences
-            # if is_first:
-            src = src.transpose(0, 1)
-            trg = trg.transpose(0, 1)
-            for row in range(batchsize):
-                s = ' '.join(get_sentence(src[row][1:], src_itos))
-                t = ' '.join(get_sentence(trg[row][1:], trg_itos))
-                src_sentences.append(s)
-                trg_sentences.append(t)
+            if is_first:
+                src = src.transpose(0, 1)
+                trg = trg.transpose(0, 1)
+                for row in range(batchsize):
+                    s = ' '.join(get_sentence(src[row][1:], src_itos))
+                    t = ' '.join(get_sentence(trg[row][1:], trg_itos))
+                    src_sentences.append(s)
+                    trg_sentences.append(t)
 
-            # else:
-            #     src_sentences = trg_sentences = None
+            else:
+                src_sentences = trg_sentences = None
 
     return epoch_loss / len(iterator), (outputs, src_sentences, trg_sentences)
 
