@@ -1,6 +1,5 @@
 #-*- coding: utf-8 -*-
 
-import math
 import os
 import argparse
 import json
@@ -36,7 +35,8 @@ def main():
     parser.add_argument('--unit', type=int, default=128, help='Number of unit')
     parser.add_argument('--layer', type=int, default=2, help='Number of layer')
     parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate')
-    parser.add_argument('--lr', type=float, default=0.3, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=0.003, help='Learning rate')
+    parser.add_argument('--weight-decay', type=float, default=0.0, help='weight decay')
     parser.add_argument('--clip', type=float, default=10, help='Clipping gradients')
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
     parser.add_argument('--minfreq', type=int, default=2, help='Min word frequency')
@@ -46,6 +46,9 @@ def main():
                         help='Select pretrained word embeddings')
     parser.add_argument('--share-emb', default=False, action='store_true',
                         help='Whether to share embedding layers')
+    parser.add_argument('--early-stop-n', type=int, default=2,
+                        help='Stop training if the best score does not update  n epoch before')
+    parser.add_argument('--optuna', default=False, action='store_true', help='Optuna mode')
     args = parser.parse_args()
 
     ### setup data ###
@@ -131,7 +134,7 @@ def main():
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = True
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
 
     ### make directory for saving ###
@@ -151,6 +154,7 @@ def main():
 
     ### training and validation ###
     best_loss = float('inf')
+    no_update_best_interval = 0
     for epoch in range(args.epoch):
         is_first = True if epoch == 0 else False
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
@@ -166,6 +170,9 @@ def main():
             best_loss = valid_loss
             model_path = args.save_dir + '/model-best.pt'
             torch.save(state, model_path)
+            no_update_best_interval = 0
+        else:
+            no_update_best_interval += 1
 
         # save validation src and trg if first epoch
         result_dir = f'{args.save_dir}/results'
@@ -202,6 +209,11 @@ def main():
         print(logs)
         with open(args.save_dir + '/logs.txt', 'a') as f:
             f.write(logs)
+
+        # early stopping
+        if no_update_best_interval >= args.early_stop_n:
+            print('Early stopped in training')
+            break
 
 
 def train(model, iterator, optimizer, criterion, clip):
