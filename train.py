@@ -10,6 +10,7 @@ import subprocess
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.optim.lr_scheduler as lr_scheduler
 import torch.backends.cudnn as cudnn
 from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
@@ -36,6 +37,7 @@ def main():
     parser.add_argument('--layer', type=int, default=2, help='Number of layer')
     parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate')
     parser.add_argument('--lr', type=float, default=0.003, help='Learning rate')
+    parser.add_argument('--lr-schedule-gamma', type=float, default=None, help='Gamma of lr-scheduler')
     parser.add_argument('--weight-decay', type=float, default=0.0, help='weight decay')
     parser.add_argument('--clip', type=float, default=10, help='Clipping gradients')
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
@@ -48,7 +50,8 @@ def main():
                         help='Whether to share embedding layers')
     parser.add_argument('--early-stop-n', type=int, default=2,
                         help='Stop training if the best score does not update  n epoch before')
-    parser.add_argument('--optuna', default=False, action='store_true', help='Optuna mode')
+    parser.add_argument('--errant-score', default=False, action='store_true',
+                        help='Whether to calculate ERRANT score')
     args = parser.parse_args()
 
     ### setup data ###
@@ -134,8 +137,12 @@ def main():
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = True
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # lr scheduling with exponential curve
+    scheduler = None
+    if args.lr_schedule_gamma:
+        scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_schedule_gamma)
 
     ### make directory for saving ###
     if os.path.exists(args.save_dir):
@@ -157,6 +164,8 @@ def main():
     no_update_best_interval = 0
     for epoch in range(args.epoch):
         is_first = True if epoch == 0 else False
+        if scheduler is not None:
+            scheduler.step()  # reduce lr
         train_loss = train(model, train_iter, optimizer, criterion, args.clip)
         valid_loss, sequences = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos,  is_first)
 
@@ -174,35 +183,37 @@ def main():
         else:
             no_update_best_interval += 1
 
-        # save validation src and trg if first epoch
-        result_dir = f'{args.save_dir}/results'
-        if is_first:
-            valid_src_path = result_dir + '/valid.src'
-            valid_tgt_path = result_dir + '/valid.tgt'
-            valid_ref_m2_path = result_dir + '/valid.ref.m2'
-            with open(valid_src_path, 'w') as f:
-                for s in sequences[1]:
-                    f.write(s + '\n')
-            with open(valid_tgt_path, 'w') as f:
-                for s in sequences[2]:
-                    f.write(s + '\n')
-            cmd = f'sh ./parallel_to_ref_m2.sh {valid_src_path} {valid_tgt_path} {valid_ref_m2_path}'
-            subprocess.check_call(cmd.split())
-            print(f'Create {valid_src_path}, {valid_tgt_path}, {valid_ref_m2_path}')
+        errant_score = None
+        if args.errant_score:
+            # save validation src and trg if first epoch
+            result_dir = f'{args.save_dir}/results'
+            if is_first:
+                valid_src_path = result_dir + '/valid.src'
+                valid_tgt_path = result_dir + '/valid.tgt'
+                valid_ref_m2_path = result_dir + '/valid.ref.m2'
+                with open(valid_src_path, 'w') as f:
+                    for s in sequences[1]:
+                        f.write(s + '\n')
+                with open(valid_tgt_path, 'w') as f:
+                    for s in sequences[2]:
+                        f.write(s + '\n')
+                cmd = f'sh ./parallel_to_ref_m2.sh {valid_src_path} {valid_tgt_path} {valid_ref_m2_path}'
+                subprocess.check_call(cmd.split())
+                print(f'Create {valid_src_path}, {valid_tgt_path}, {valid_ref_m2_path}')
 
-        # save validation outputs
-        prefix = f'valid-e{epoch+1:02}'
-        valid_output_path = f'{result_dir}/{prefix}.sys'
-        with open(valid_output_path, 'w') as f:
-            for output in sequences[0]:
-                if not output:
-                    f.write('NOTOKENS\n')
-                else:
-                    f.write(output + '\n')
+            # save validation outputs
+            prefix = f'valid-e{epoch+1:02}'
+            valid_output_path = f'{result_dir}/{prefix}.sys'
+            with open(valid_output_path, 'w') as f:
+                for output in sequences[0]:
+                    if not output:
+                        f.write('NOTOKENS\n')
+                    else:
+                        f.write(output + '\n')
 
-        # compute ERRANT score
-        cmd = f'sh ./compute_errant_score.sh {valid_output_path} {valid_tgt_path} {valid_ref_m2_path} {result_dir} {prefix}'
-        errant_score = subprocess.check_output(cmd.split()).decode("UTF-8").strip()
+            # compute ERRANT score
+            cmd = f'sh ./compute_errant_score.sh {valid_output_path} {valid_tgt_path} {valid_ref_m2_path} {result_dir} {prefix}'
+            errant_score = subprocess.check_output(cmd.split()).decode("UTF-8").strip()
 
         # logging
         logs = f"Epoch: {epoch+1:02}\tTrain loss: {train_loss:.3f}\tVal. Loss: {valid_loss:.3f}\tERRANT score: {errant_score}\n"
@@ -263,8 +274,6 @@ def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
                     t = ' '.join(get_sentence(trg[row][1:], trg_itos))
                     src_sentences.append(s)
                     trg_sentences.append(t)
-            else:
-                src_sentences = trg_sentences = None
 
     return epoch_loss / len(iterator), (outputs, src_sentences, trg_sentences)
 

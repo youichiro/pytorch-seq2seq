@@ -11,6 +11,7 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.optim.lr_scheduler as lr_scheduler
 import torch.backends.cudnn as cudnn
 from torchtext.data import Field, TabularDataset, BucketIterator
 from torchtext.vocab import FastText, GloVe
@@ -58,6 +59,7 @@ def main():
     def objective(trial):
         ### setup trials ###
         lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
+        lr_schedule_gamma = trial.suggest_loguniform('lr-schedule-gamma', 0.5, 1.0)
         weight_decay = trial.suggest_loguniform('weight_decay', 1e-10, 1e-3)
         layer = trial.suggest_categorical('n_layer', [1, 2, 3])
         dropout = trial.suggest_uniform('dropout', 0.0, 0.3)
@@ -131,8 +133,10 @@ def main():
             model = torch.nn.DataParallel(model)
             cudnn.benchmark = True
 
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        # lr scheduling with exponential curve
+        scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=lr_schedule_gamma)
 
         ### make directory for saving ###
         if os.path.exists(args.save_dir):
@@ -152,6 +156,7 @@ def main():
         no_update_best_interval = 0
         for epoch in range(args.epoch):
             is_first = True if epoch == 0 else False
+            scheduler.step()  # reduce lr
             train_loss = train(model, train_iter, optimizer, criterion, args.clip)
             valid_loss = eval(model, valid_iter, criterion, SRC.vocab.itos, TRG.vocab.itos, is_first)
 
