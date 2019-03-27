@@ -65,8 +65,8 @@ def main():
         layer = trial.suggest_categorical('n_layer', [1, 2, 3])
         dropout = trial.suggest_uniform('dropout', 0.0, 0.3)
         vocabsize = trial.suggest_int('vocabsize', 20000, 40000)
-        init_emb = trial.suggest_categorical('init-emb', ['none', 'fasttext', 'glove'])
-        share_emb = trial.suggest_categorical('share-emb', [False, True])
+        init_emb = trial.suggest_categorical('init-emb', ['fasttext', 'glove', 'none'])
+        share_emb = trial.suggest_categorical('share-emb', [True, False])
 
         ### setup vocabularies ###
         if init_emb == 'none':
