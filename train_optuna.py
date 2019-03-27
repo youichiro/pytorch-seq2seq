@@ -41,6 +41,7 @@ def main():
     parser.add_argument('--early-stop-n', type=int, default=2,
                         help='Stop training if the best score does not update  n epoch before')
     parser.add_argument('--n-trial', type=int, default=100, help='Number of trial')
+    parser.add_argument('--study-name', default='study_optuna', help='Study name for sqlite')
     args = parser.parse_args()
 
     ### setup data ###
@@ -182,8 +183,8 @@ def main():
         return best_loss
 
     # You have to do the following command in advance:
-    # optuna create-study --study 'study_optuna' --storage 'sqlite:///study_optuna.db'
-    study = optuna.create_study(study_name='study_optuna', storage='sqlite:///study_optuna.db')
+    # optuna create-study --study '{args.study_name}' --storage 'sqlite:///{args.study_name}.db'
+    study = optuna.Study(study_name=args.study_name, storage=f'sqlite:///{args.study_name}.db')
     study.optimize(objective, n_trials=args.n_trial)
     print('\nbest params: ', study.best_params)
     print(f'best value: {study.best_value}')
