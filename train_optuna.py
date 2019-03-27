@@ -181,7 +181,9 @@ def main():
 
         return best_loss
 
-    study = optuna.create_study()
+    # You have to do the following command in advance:
+    # optuna create-study --study 'study_optuna' --storage 'sqlite:///study_optuna.db'
+    study = optuna.create_study(study_name='study_optuna', storage='sqlite:///study_optuna.db')
     study.optimize(objective, n_trials=args.n_trial)
     print('\nbest params: ', study.best_params)
     print(f'best value: {study.best_value}')
