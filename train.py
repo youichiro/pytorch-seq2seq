@@ -188,7 +188,10 @@ def main():
         valid_output_path = f'{result_dir}/{prefix}.sys'
         with open(valid_output_path, 'w') as f:
             for output in sequences[0]:
-                f.write(output + '\n')
+                if not output:
+                    f.write('NOTOKENS\n')
+                else:
+                    f.write(output + '\n')
 
         # compute ERRANT score
         cmd = f'sh ./compute_errant_score.sh {valid_output_path} {valid_tgt_path} {valid_ref_m2_path} {result_dir} {prefix}'
@@ -230,8 +233,6 @@ def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
             src = batch.src
             trg = batch.trg
             outs = model(src, trg, None, 0)
-            if outs is None:
-                print("NOOOOOOOOO")
             loss = criterion(outs[1:].view(-1, outs.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
             # system output sentences
@@ -250,7 +251,6 @@ def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
                     t = ' '.join(get_sentence(trg[row][1:], trg_itos))
                     src_sentences.append(s)
                     trg_sentences.append(t)
-
             else:
                 src_sentences = trg_sentences = None
 
