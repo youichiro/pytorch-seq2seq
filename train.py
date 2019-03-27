@@ -230,6 +230,8 @@ def eval(model, iterator, criterion, src_itos, trg_itos, is_first):
             src = batch.src
             trg = batch.trg
             outs = model(src, trg, None, 0)
+            if outs is None:
+                print("NOOOOOOOOO")
             loss = criterion(outs[1:].view(-1, outs.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
             # system output sentences

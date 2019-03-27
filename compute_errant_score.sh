@@ -1,6 +1,6 @@
 #!bin/sh
 
-# args: hyp_path, ref_path, ref_m2_path, save_dir, prefix
+# args: hyp_path, corr_path, ref_m2_path, save_dir, prefix
 
 if test $# -ne 5
 then

@@ -93,7 +93,6 @@ class NSE(nn.Module):
         c_t = self.compose_mlp(torch.cat((o_t, m_t), dim=1))  # c_t: (batch, 2 * n_unit)
         return c_t
 
-
     def write(self, M_t, c_t, z_t):
         # M_t: (batch, srclen, n_unit)
         # c_t: (batch, 2 * n_unit)
