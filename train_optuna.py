@@ -41,7 +41,7 @@ def main():
     parser.add_argument('--early-stop-n', type=int, default=2,
                         help='Stop training if the best score does not update  n epoch before')
     parser.add_argument('--n-trial', type=int, default=100, help='Number of trial')
-    parser.add_argument('--study-name', default='study_optuna', help='Study name for sqlite')
+    parser.add_argument('--study-name', default=None, help='Study name for sqlite')
     args = parser.parse_args()
 
     ### setup data ###
@@ -148,7 +148,7 @@ def main():
         params.update(lr=lr, weight_decay=weight_decay, layer=layer, dropout=dropout, vocabsize=vocabsize,
                       init_emb=init_emb, share_emb=share_emb, train_size=train_size, valid_size=valid_size,
                       src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize, parameter_num=parameter_num)
-        json.dump(params, open(args.save_dir + '/params.json', 'w', encoding='utf-8'), ensure_ascii=False)
+        json.dump(params, open(f'{args.save_dir}/params.json', 'w', encoding='utf-8'), ensure_ascii=False)
         pprint.pprint(params, indent=4)
         print()
 
@@ -165,7 +165,7 @@ def main():
                 best_loss = valid_loss
                 no_update_best_interval = 0
                 # save best model
-                model_path = args.save_dir + '/model-best.pt'
+                model_path = f'{args.save_dir}/model-best.pt'
                 state = {'vocabs': vocabs, 'params': params, 'state_dict': model.state_dict()}
                 torch.save(state, model_path)
             else:
@@ -182,12 +182,16 @@ def main():
 
         return best_loss
 
-    # You have to do the following command in advance:
-    # optuna create-study --study '{args.study_name}' --storage 'sqlite:///{args.study_name}.db'
-    study = optuna.Study(study_name=args.study_name, storage=f'sqlite:///{args.study_name}.db')
+    if args.study_name:
+        # You have to do the following command in advance:
+        # optuna create-study --study '{args.study_name}' --storage 'sqlite:///{args.study_name}.db'
+        study = optuna.Study(study_name=args.study_name, storage=f'sqlite:///{args.study_name}.db')
+    else:
+        study = optuna.create_study()
     study.optimize(objective, n_trials=args.n_trial)
     print('\nbest params: ', study.best_params)
     print(f'best value: {study.best_value}')
+    print(f'best trial: {study.best_trial.trial_id}')
 
 
 def train(model, iterator, optimizer, criterion, clip):
