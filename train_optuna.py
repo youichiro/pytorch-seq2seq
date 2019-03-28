@@ -34,10 +34,12 @@ def main():
     parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
     parser.add_argument('--embsize', type=int, default=128, help='Embedding size')
     parser.add_argument('--unit', type=int, default=128, help='Number of unit')
+    parser.add_argument('--lr-schedule-gamma', type=float, default=0.95, help='Gamma of lr-scheduler')
     parser.add_argument('--clip', type=float, default=10, help='Clipping gradients')
     parser.add_argument('--epoch', type=int, default=25, help='Max epoch')
     parser.add_argument('--minfreq', type=int, default=2, help='Min word frequency')
     parser.add_argument('--maxlen', type=int, default=70, help='Max number of words for validation')
+    parser.add_argument('--vocabsize', type=int, default=40000, help='vocabulary size')
     parser.add_argument('--early-stop-n', type=int, default=2,
                         help='Stop training if the best score does not update  n epoch before')
     parser.add_argument('--n-trial', type=int, default=100, help='Number of trial')
@@ -60,25 +62,23 @@ def main():
     def objective(trial):
         ### setup trials ###
         lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
-        lr_schedule_gamma = trial.suggest_loguniform('lr-schedule-gamma', 0.5, 1.0)
         weight_decay = trial.suggest_loguniform('weight_decay', 1e-10, 1e-3)
         layer = trial.suggest_categorical('n_layer', [1, 2, 3])
-        dropout = trial.suggest_uniform('dropout', 0.0, 0.3)
-        vocabsize = trial.suggest_int('vocabsize', 20000, 40000)
+        dropout = trial.suggest_categorical('dropout', [0.1, 0.2, 0.3])
         init_emb = trial.suggest_categorical('init-emb', ['fasttext', 'glove', 'none'])
         share_emb = trial.suggest_categorical('share-emb', [True, False])
 
         ### setup vocabularies ###
         if init_emb == 'none':
-            SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=vocabsize)
-            TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=vocabsize)
+            SRC.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
+            TRG.build_vocab(train_data, min_freq=args.minfreq, max_size=args.vocabsize)
         else:
             if init_emb == 'fasttext':
                 vectors = FastText(language='en')
             elif init_emb == 'glove':
                 vectors = GloVe()
-            SRC.build_vocab(train_data, vectors=vectors, min_freq=args.minfreq, max_size=vocabsize)
-            TRG.build_vocab(train_data, vectors=vectors, min_freq=args.minfreq, max_size=vocabsize)
+            SRC.build_vocab(train_data, vectors=vectors, min_freq=args.minfreq, max_size=args.vocabsize)
+            TRG.build_vocab(train_data, vectors=vectors, min_freq=args.minfreq, max_size=args.vocabsize)
             args.embsize = SRC.vocab.vectors.size()[1]
 
         vocabs = {'src_stoi': SRC.vocab.stoi, 'src_itos': SRC.vocab.itos,
@@ -137,7 +137,7 @@ def main():
         criterion = nn.CrossEntropyLoss(ignore_index=TRG.vocab.stoi['<pad>'])
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         # lr scheduling with exponential curve
-        scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=lr_schedule_gamma)
+        scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_schedule_gamma)
 
         ### make directory for saving ###
         if os.path.exists(args.save_dir):
@@ -145,7 +145,7 @@ def main():
         os.mkdir(args.save_dir)
 
         params = args.__dict__
-        params.update(lr=lr, weight_decay=weight_decay, layer=layer, dropout=dropout, vocabsize=vocabsize,
+        params.update(lr=lr, weight_decay=weight_decay, layer=layer, dropout=dropout,
                       init_emb=init_emb, share_emb=share_emb, train_size=train_size, valid_size=valid_size,
                       src_vocabsize=src_vocabsize, trg_vocabsize=trg_vocabsize, parameter_num=parameter_num)
         json.dump(params, open(f'{args.save_dir}/params.json', 'w', encoding='utf-8'), ensure_ascii=False)
