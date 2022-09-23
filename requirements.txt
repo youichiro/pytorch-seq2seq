@@ -30,7 +30,7 @@ Pillow==5.4.1
 plac==0.9.6
 preshed==1.0.1
 prettytable==0.7.2
-protobuf==3.7.0
+protobuf==3.18.3
 pycparser==2.19
 pylint==2.2.2
 pyparsing==2.3.1
